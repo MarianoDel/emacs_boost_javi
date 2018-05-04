@@ -1,5 +1,5 @@
 //---------------------------------------------
-// #### PROYECTO BOOST TECNOCOM - Custom Board ####
+// #### PROYECTO BOOST JAVILANDIA - Custom Board ####
 // ##
 // ## @Author: Med
 // ## @Editor: Emacs - ggtags
@@ -40,30 +40,26 @@ volatile unsigned short wait_ms_var = 0;
 // ------- Definiciones para los filtros -------
 #define SIZEOF_FILTER    8
 #define UNDERSAMPLING_TICKS    5
-unsigned short vmains [SIZEOF_FILTER];
-unsigned short vbatt [SIZEOF_FILTER];
-unsigned short iboost [SIZEOF_FILTER];
+unsigned short vin [SIZEOF_FILTER];
+unsigned short voneten [SIZEOF_FILTER];
+
 short d = 0;
 short ez1 = 0;
 short ez2 = 0;
 
-#define IN_6V        335
-#define IN_10V       559
-#define IN_11V       614
-#define IN_12V       670
-#define IN_16V       894
+#define IN_9_5V     215    //son 9V en el sensor
+#define IN_11_5V    262    //son 11V en el sensor
+#define IN_16V      382
+#define IN_20V      477 
 
-#define BAT_9_5V     531
-#define BAT_11_5V    643
+#define OUT_24V      572
+#define OUT_35V      835
+#define OUT_40V      953
 
-#define OUT_35V      319
-#define OUT_40V      364
-#define OUT_45V      410
-#define OUT_50V      455
-#define OUT_80V      747    //ajustada 13-4-18
 
 //--- VARIABLES GLOBALES ---//
-
+#define TIMER_LED_RELOAD    1024
+unsigned short timer_led_pwm = 0;
 
 // ------- de los timers -------
 
@@ -84,9 +80,8 @@ int main(void)
     unsigned char protected = 0;
     unsigned char calc_filters = 0;
     unsigned char undersampling = 0;
-    unsigned short curr_filtered = 0;
-    unsigned short batt_filtered = 0;
-    unsigned short mains_filtered = 0;
+    unsigned short voneten_filtered = 0;
+    unsigned short vin_filtered = 0;
         
 
     //GPIO Configuration.
@@ -129,7 +124,7 @@ int main(void)
 
     //prueba modulo adc.c tim.c e int adc
     // TIM_3_Init();
-    // Update_TIM3_CH2 (25);
+    // Update_TIM3_CH2 (5);
 
     // AdcConfig();
     // ADC1->CR |= ADC_CR_ADSTART;
@@ -147,40 +142,65 @@ int main(void)
     //     }
     // }               
     //fin prueba modulo adc.c tim.c e int adc
+
     TIM_3_Init();
     Update_TIM3_CH2 (0);
 
     AdcConfig();
     ADC1->CR |= ADC_CR_ADSTART;
     ChangeLed(LED_STANDBY);
-    RELAY_ON;
 
     timer_standby = 1000;
-        
+
+    //prueba led pwm contra adc
+    Update_TIM3_CH2(DUTY_10_PERCENT);
+    while (1)
+    {
+        // if (timer_led_pwm < 512)
+        if (timer_led_pwm < Vout_Sense)
+            LED_ON;
+        else
+            LED_OFF;
+
+        if (timer_led_pwm > TIMER_LED_RELOAD)
+            timer_led_pwm = 0;
+
+        // if (LED)
+        //     LED_OFF;
+        // else
+        //     LED_ON;
+
+        // Wait_ms(20);
+    }
+
+
+
+
+    
     while (1)
     {
         switch (main_state)
         {
             case INIT:
                 if (!timer_standby)
-                {
-                    
                     main_state++;
-                }
+
                 break;
 
-            case STAND_BY:    //tengo 220V
-                // if (mains_filtered < IN_16V)    //tengo baja tension de 220, me paso a bateria
-                if (mains_filtered < IN_11V)    //tengo baja tension de 220, me paso a bateria
+            case STAND_BY:
+                if (vin_filtered < IN_9_5V)    //baja tension aviso el error
                 {
-                    main_state = TO_GEN;
-                    RELAY_OFF;
+                    main_state = LOW_INPUT;
+                    ChangeLed(LED_LOW_VOLTAGE);
                     timer_standby = 100;
                 }
-                break;
-
-            case TO_GEN:
-                if (!timer_standby)
+                else if (vin_filtered > IN_20V)    //exceso de tension, aviso del error
+                {
+                    main_state = HIGH_INPUT;
+                    ChangeLed(LED_HIGH_VOLTAGE);
+                    timer_standby = 100;                    
+                }
+                else
                 {
                     //paso a generar
                     main_state = GENERATING;
@@ -188,7 +208,7 @@ int main(void)
                     d = 0;
                     ez1 = 0;
                     ez2 = 0;
-                }
+                }                
                 break;
 
             case GENERATING:
@@ -204,14 +224,14 @@ int main(void)
                             else
                             {
 
-                                // d = PID_roof (OUT_35V, Vout_Sense, d, &ez1, &ez2);
-                                d = PID_roof (OUT_80V, Vout_Sense, d, &ez1, &ez2);
+                                 d = PID_roof (OUT_24V, Vout_Sense, d, &ez1, &ez2);
+                                //d = PID_roof (OUT_80V, Vout_Sense, d, &ez1, &ez2);
                                 // d = PID_roof (OUT_50V, Vout_Sense, d, &ez1, &ez2);                                
                                 if (d < 0)
                                     d = 0;
 
-                                if (d > DUTY_90_PERCENT)	//no pasar del 90%
-                                    d = DUTY_90_PERCENT;
+                                if (d > DUTY_10_PERCENT)	//no pasar del 90%
+                                    d = DUTY_10_PERCENT;
 
                                 Update_TIM3_CH2 (d);
                             }
@@ -238,44 +258,52 @@ int main(void)
                     }
                 }
 
-                //reviso si vuelven los 220
-                if (mains_filtered > IN_12V)
+                //reviso tensiones de alimentacion
+                if (vin_filtered > IN_20V)
                 {
                     //dejo de generar y vuelvo a 220
                     Update_TIM3_CH2(0);
-                    ChangeLed(LED_STANDBY);
-                    main_state = TO_STAND_BY;
+                    ChangeLed(LED_HIGH_VOLTAGE);
+                    main_state = HIGH_INPUT;
                     timer_standby = 500;
                 }
 
-                //reviso si esta ya muy baja la bateria
-                if (batt_filtered < BAT_9_5V)
+                //reviso si esta ya muy baja la entrada
+                if (vin_filtered < IN_9_5V)
                 {
                     Update_TIM3_CH2(0);
                     ChangeLed(LED_LOW_VOLTAGE);
-                    main_state = LOW_BAT;
+                    main_state = LOW_INPUT;
+                    timer_standby = 500;
                 }
                 break;
 
-            case TO_STAND_BY:
+            case LOW_INPUT:
                 if (!timer_standby)
                 {
-                    RELAY_ON;
-                    main_state = STAND_BY;
-                }
-                break;
-
-            case LOW_BAT:
-                if (batt_filtered > BAT_11_5V)
-                {
-                    //si tengo 220 vuelvo al principal
-                    if (mains_filtered > IN_11V)
-                        main_state = TO_STAND_BY;
+                    if (vin_filtered > IN_11_5V)
+                    {
+                        //tengo buena tension de entrada                   
+                        main_state = STAND_BY;
+                    }
                     else
-                        main_state = TO_GEN;
+                        timer_standby = 10;
                 }                
                 break;
 
+            case HIGH_INPUT:
+                if (!timer_standby)
+                {
+                    if (vin_filtered < IN_16V)
+                    {
+                        //tengo bien la entrada
+                        main_state = STAND_BY;
+                    }
+                    else
+                        timer_standby = 10;
+                }
+                break;
+                
             case OVERCURRENT:
                 break;
                 
@@ -294,32 +322,28 @@ int main(void)
         // }
         if (!timer_filters)
         {
-            vmains[0] = Vmains_Sense;
-            vbatt[0] = Vbatt_Sense;
-            iboost[0] = Boost_Sense;
+            vin[0] = Vin_Sense;
+            voneten[0] = One_Ten_Pote;
             calc_filters = 1;
-            timer_filters = 100;
+            timer_filters = 10;
         }
 
         switch (calc_filters)    //distribuyo filtros en varios pasos
         {
             case 1:
-                mains_filtered = MAFilter8(vmains);
+                vin_filtered = MAFilter8(vin);
                 calc_filters++;
                 break;
 
             case 2:
-                batt_filtered = MAFilter8(vbatt);
+                voneten_filtered = MAFilter8(voneten);
                 calc_filters++;
                 break;
 
             case 3:
-                curr_filtered = MAFilter8(iboost);
-                calc_filters++;
                 break;
 
-            case 4:
-                break;
+
         }
             
         UpdateLed();
@@ -400,6 +424,9 @@ void TimingDelay_Decrement(void)
     if (timer_led)
         timer_led--;
 
+    if (timer_led_pwm < 0xFFFF)
+        timer_led_pwm ++;
+    
 }
 
 //--- end of file ---//
