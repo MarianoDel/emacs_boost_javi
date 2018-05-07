@@ -39,7 +39,7 @@ volatile unsigned short wait_ms_var = 0;
 
 // ------- Definiciones para los filtros -------
 #define SIZEOF_FILTER    8
-#define UNDERSAMPLING_TICKS    5
+#define UNDERSAMPLING_TICKS    10
 unsigned short vin [SIZEOF_FILTER];
 unsigned short voneten [SIZEOF_FILTER];
 
@@ -62,15 +62,27 @@ short ez2 = 0;
 #define VOUT_SETPOINT    OUT_40V
 #define MAX_VOUT         OUT_45V
 
+#ifdef TWO_RSENSE
 //corriente de salida por 1.49V/A
-#define IOUT_007MA    33
+#define IOUT_007MA    33   
 #define IOUT_350MA    161
 #define IOUT_700MA    323
 #define IOUT_1000MA   461
+#endif
+
+#ifdef ONE_RSENSE
+//corriente de salida por 2.97V/A
+#define IOUT_007MA    66    
+#define IOUT_350MA    322
+#define IOUT_700MA    646
+#define IOUT_1000MA   922
+#endif
 
 #define IOUT_SETPOINT    IOUT_700MA
-#define IOUT_MIN      IOUT_007MA
+#define IOUT_MIN         IOUT_007MA
 
+#define ONE_TEN_ON    25
+#define ONE_TEN_OFF   16
 
 
 //--- VARIABLES GLOBALES ---//
@@ -226,7 +238,7 @@ int main(void)
                     ChangeLed(LED_HIGH_VOLTAGE);
                     timer_standby = 100;                    
                 }
-                else
+                else if (voneten_filtered > ONE_TEN_ON)
                 {
                     //paso a generar
                     main_state = GENERATING;
@@ -352,6 +364,14 @@ int main(void)
                     main_state = LOW_INPUT;
                     timer_standby = 500;
                 }
+
+                if (voneten_filtered < ONE_TEN_OFF)
+                {
+                    Update_TIM3_CH2(0);
+                    ChangeLed(LED_STANDBY);
+                    main_state = INIT;
+                    timer_standby = 500;
+                }                    
                 break;
 
             case LOW_INPUT:

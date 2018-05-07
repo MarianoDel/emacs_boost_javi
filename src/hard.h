@@ -26,6 +26,9 @@
 #define WITH_POTE_CTRL
 // #define FIXED_CTRL
 
+#define ONE_RSENSE
+// #define TWO_RSENSE
+
 //------ Configuration for Firmware-Channels -----
 
 
