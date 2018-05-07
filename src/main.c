@@ -47,14 +47,30 @@ short d = 0;
 short ez1 = 0;
 short ez2 = 0;
 
+//tensionde entrada dividido 13
 #define IN_9_5V     215    //son 9V en el sensor
 #define IN_11_5V    262    //son 11V en el sensor
 #define IN_16V      382
 #define IN_20V      477 
 
-#define OUT_24V      572
-#define OUT_35V      835
-#define OUT_40V      953
+//tension de salida dividido 23
+#define OUT_24V      323
+#define OUT_35V      471
+#define OUT_40V      539
+#define OUT_45V      606
+
+#define VOUT_SETPOINT    OUT_40V
+#define MAX_VOUT         OUT_45V
+
+//corriente de salida por 1.49V/A
+#define IOUT_007MA    33
+#define IOUT_350MA    161
+#define IOUT_700MA    323
+#define IOUT_1000MA   461
+
+#define IOUT_SETPOINT    IOUT_700MA
+#define IOUT_MIN      IOUT_007MA
+
 
 
 //--- VARIABLES GLOBALES ---//
@@ -80,9 +96,18 @@ int main(void)
     unsigned char protected = 0;
     unsigned char calc_filters = 0;
     unsigned char undersampling = 0;
-    unsigned short voneten_filtered = 0;
     unsigned short vin_filtered = 0;
-        
+    
+#ifdef WITH_POTE_CTRL
+    unsigned int setpoint;
+    unsigned short voneten_filtered = 0;
+#endif
+
+#ifdef AUTOMATIC_CTRL
+    unsigned int setpoint;    
+    unsigned short ii = 33;
+    unsigned char subiendo = 0;
+#endif
 
     //GPIO Configuration.
     GPIO_Config();
@@ -153,26 +178,27 @@ int main(void)
     timer_standby = 1000;
 
     //prueba led pwm contra adc
-    Update_TIM3_CH2(DUTY_10_PERCENT);
-    while (1)
-    {
-        // if (timer_led_pwm < 512)
-        if (timer_led_pwm < Vout_Sense)
-            LED_ON;
-        else
-            LED_OFF;
+    // Update_TIM3_CH2(DUTY_10_PERCENT);
+    // while (1)
+    // {
+    //     // if (timer_led_pwm < 512)
+    //     if (timer_led_pwm < Vout_Sense)
+    //     // if (timer_led_pwm < One_Ten_Pote)
+    //         LED_ON;
+    //     else
+    //         LED_OFF;
 
-        if (timer_led_pwm > TIMER_LED_RELOAD)
-            timer_led_pwm = 0;
+    //     if (timer_led_pwm > TIMER_LED_RELOAD)
+    //         timer_led_pwm = 0;
 
-        // if (LED)
-        //     LED_OFF;
-        // else
-        //     LED_ON;
+    //     // if (LED)
+    //     //     LED_OFF;
+    //     // else
+    //     //     LED_ON;
 
-        // Wait_ms(20);
-    }
-
+    //     // Wait_ms(20);
+    // }
+    //fin prueba led pwm contra adc
 
 
 
@@ -219,22 +245,72 @@ int main(void)
                         if (seq_ready)
                         {
                             seq_ready = 0;
-                            if (undersampling < UNDERSAMPLING_TICKS)
-                                undersampling++;
-                            else
+
+                            if (Vout_Sense > MAX_VOUT)    //maxima tension permitida sin cortar lazo
                             {
-
-                                 d = PID_roof (OUT_24V, Vout_Sense, d, &ez1, &ez2);
-                                //d = PID_roof (OUT_80V, Vout_Sense, d, &ez1, &ez2);
-                                // d = PID_roof (OUT_50V, Vout_Sense, d, &ez1, &ez2);                                
-                                if (d < 0)
-                                    d = 0;
-
-                                if (d > DUTY_10_PERCENT)	//no pasar del 90%
-                                    d = DUTY_10_PERCENT;
-
+                                d = 0;
                                 Update_TIM3_CH2 (d);
                             }
+                            else
+                            {
+                                if (undersampling < UNDERSAMPLING_TICKS)
+                                    undersampling++;
+                                else
+                                {
+                                    //reviso lazo V o I
+                                    if (Vout_Sense > VOUT_SETPOINT)    //uso lazo V
+                                    {
+                                        d = PID_roof (VOUT_SETPOINT, Vout_Sense, d, &ez1, &ez2);
+                                    }
+                                    else    //uso lazo I
+                                    {
+#ifdef AUTOMATIC_CTRL
+                                        if (!timer_standby)
+                                        {
+                                            timer_standby = 5;    //con 5 va, 7 ya no
+                                            if (subiendo)
+                                            {
+                                                if (ii < 63)
+                                                    ii++;
+                                                else
+                                                    subiendo = 0;
+                                            }
+                                            else
+                                            {
+                                                if (ii > 33)
+                                                    ii--;
+                                                else
+                                                    subiendo = 1;
+                                            }
+
+
+                                            setpoint = ii;
+                                        }
+                                            
+                                        d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
+#endif
+#ifdef WITH_POTE_CTRL
+                                        setpoint = IOUT_SETPOINT * voneten_filtered;
+                                        setpoint >>= 10;
+                                        if (setpoint < IOUT_MIN)
+                                            setpoint = IOUT_MIN;
+                                        d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
+#endif
+#ifdef FIXED_CTRL
+                                        d = PID_roof (IOUT_SETPOINT, Iout_Sense, d, &ez1, &ez2);
+#endif                                        
+                                    }
+
+                                    if (d < 0)
+                                        d = 0;
+
+                                    if (d > DUTY_80_PERCENT)	//no pasar del 90%
+                                        d = DUTY_80_PERCENT;
+
+                                    Update_TIM3_CH2 (d);
+
+                                }                                
+                            }    //cierra Vout max
                         }    //cierra sequence
                     }    //cierra jumper protected
                     else
@@ -320,12 +396,33 @@ int main(void)
         //         // LED_ON;
         //     LED_OFF;
         // }
+        
+        //envio de info analogica al ledpwm
+#ifdef AUTOMATIC_CTRL        
+        if (timer_led_pwm < d)            
+#endif        
+#ifdef WITH_POTE_CTRL        
+        // if (timer_led_pwm < setpoint)
+        if (timer_led_pwm < d)            
+#endif
+#ifdef FIXED_CTRL
+        if (timer_led_pwm < Vout_Sense)
+#endif
+            LED_ON;
+        else
+            LED_OFF;
+
+        if (timer_led_pwm > TIMER_LED_RELOAD)
+            timer_led_pwm = 0;
+        //fin envio de info analogica al ledpwm
+
+        
         if (!timer_filters)
         {
             vin[0] = Vin_Sense;
             voneten[0] = One_Ten_Pote;
             calc_filters = 1;
-            timer_filters = 10;
+            timer_filters = 5;
         }
 
         switch (calc_filters)    //distribuyo filtros en varios pasos
@@ -336,17 +433,18 @@ int main(void)
                 break;
 
             case 2:
+#ifdef WITH_POTE_CTRL
                 voneten_filtered = MAFilter8(voneten);
+#endif
                 calc_filters++;
                 break;
 
             case 3:
                 break;
 
-
         }
             
-        UpdateLed();
+        // UpdateLed();
     }               
 
     // AdcConfig();

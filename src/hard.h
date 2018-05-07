@@ -22,7 +22,9 @@
 // #define SOFTWARE_VERSION_1_1
 
 //---- Features Configuration ----------------
-
+// #define AUTOMATIC_CTRL
+#define WITH_POTE_CTRL
+// #define FIXED_CTRL
 
 //------ Configuration for Firmware-Channels -----
 

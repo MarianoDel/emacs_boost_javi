@@ -31,7 +31,8 @@ short d_last = 0;
 #define KDV	0			// 0
 
 //todos se dividen por 128
-#define KPI	32			// 1
+// #define KPI	32			// 1
+#define KPI	100			// 1
 #define KII	8			// .125
 #define KDI	0			// 0
 
