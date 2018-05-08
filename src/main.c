@@ -71,11 +71,11 @@ short ez2 = 0;
 #endif
 
 #ifdef ONE_RSENSE
-//corriente de salida por 2.97V/A
+//corriente de salida por 2.8V/A
 #define IOUT_007MA    66    
-#define IOUT_350MA    322
-#define IOUT_700MA    646
-#define IOUT_1000MA   922
+#define IOUT_350MA    305
+#define IOUT_700MA    611
+#define IOUT_1000MA   872
 #endif
 
 #define IOUT_SETPOINT    IOUT_700MA
@@ -237,7 +237,7 @@ int main(void)
                     main_state = HIGH_INPUT;
                     ChangeLed(LED_HIGH_VOLTAGE);
                     timer_standby = 100;                    
-                }
+                }                
                 else if (voneten_filtered > ONE_TEN_ON)
                 {
                     //paso a generar
