@@ -29,6 +29,9 @@
 #define ONE_RSENSE
 // #define TWO_RSENSE
 
+#define LED_SHOW_STATUS
+// #define LED_SHOW_INTERNAL_VALUES
+
 //------ Configuration for Firmware-Channels -----
 
 
@@ -129,7 +132,7 @@ typedef enum
 
 //Estados Externos de LED BLINKING
 #define LED_NO_BLINKING               0
-#define LED_STANDBY                   LED_NO_BLINKING
+#define LED_STANDBY                   1
 #define LED_GENERATING                2
 #define LED_LOW_VOLTAGE               3
 #define LED_HIGH_VOLTAGE              4

@@ -418,6 +418,7 @@ int main(void)
         // }
         
         //envio de info analogica al ledpwm
+#ifdef LED_SHOW_INTERNAL_VALUES
 #ifdef AUTOMATIC_CTRL        
         if (timer_led_pwm < d)            
 #endif        
@@ -434,8 +435,12 @@ int main(void)
 
         if (timer_led_pwm > TIMER_LED_RELOAD)
             timer_led_pwm = 0;
+#endif
         //fin envio de info analogica al ledpwm
 
+#ifdef LED_SHOW_STATUS
+        UpdateLed();
+#endif
         
         if (!timer_filters)
         {
@@ -462,9 +467,7 @@ int main(void)
             case 3:
                 break;
 
-        }
-            
-        // UpdateLed();
+        }                    
     }               
 
     // AdcConfig();
