@@ -18,82 +18,45 @@
 #include "adc.h"
 #include "tim.h"
 #include "dsp.h"
-
-//#include <stdio.h>
-//#include <string.h>
+#include "dma.h"
 
 
+// Externals -----------------------------------------------
+// -- Externals from or for the ADC ------------------------
+volatile unsigned short adc_ch [ADC_CHANNEL_QUANTITY];
+#ifdef ADC_WITH_INT
+volatile unsigned char seq_ready = 0;
+#endif
 
-
-//--- VARIABLES EXTERNAS ---//
-// ------- Externals del ADC -------
-volatile unsigned short adc_ch [ADC_CH_QUANTITY];
-volatile unsigned char seq_ready;
-
-// ------- Externals de los timers -------
+// -- Externals for the timers -----------------------------
 volatile unsigned short timer_led = 0;
 volatile unsigned short timer_standby;
 volatile unsigned short timer_filters;
 volatile unsigned short wait_ms_var = 0;
 
 
-// ------- Definiciones para los filtros -------
-#define SIZEOF_FILTER    8
-#define UNDERSAMPLING_TICKS    10
-unsigned short vin [SIZEOF_FILTER];
-unsigned short voneten [SIZEOF_FILTER];
-
-short d = 0;
-short ez1 = 0;
-short ez2 = 0;
-
-//tensionde entrada dividido 13
-#define IN_9_5V     215    //son 9V en el sensor
-#define IN_11_5V    262    //son 11V en el sensor
-#define IN_16V      382
-#define IN_20V      477 
-
-//tension de salida dividido 23
-#define OUT_24V      323
-#define OUT_35V      471
-#define OUT_40V      539
-#define OUT_45V      606
-
-#define VOUT_SETPOINT    OUT_40V
-#define MAX_VOUT         OUT_45V
-
-#ifdef TWO_RSENSE
-//corriente de salida por 1.49V/A
-#define IOUT_007MA    33   
-#define IOUT_350MA    161
-#define IOUT_700MA    323
-#define IOUT_1000MA   461
-#endif
-
-#ifdef ONE_RSENSE
-//corriente de salida por 2.8V/A
-#define IOUT_007MA    66    
-#define IOUT_350MA    305
-#define IOUT_700MA    611
-#define IOUT_1000MA   872
-#endif
-
-#define IOUT_SETPOINT    IOUT_700MA
-#define IOUT_MIN         IOUT_007MA
-
-#define ONE_TEN_ON    25
-#define ONE_TEN_OFF   16
-
-
-//--- VARIABLES GLOBALES ---//
+// Globals -------------------------------------------------
 #define TIMER_LED_RELOAD    1024
 unsigned short timer_led_pwm = 0;
 
+//  for the filters
+ma16_u16_data_obj_t boost_sense_data_filter;
+ma16_u16_data_obj_t battery_sense_data_filter;
+ma16_u16_data_obj_t iout_sense_data_filter; 
+ma16_u16_data_obj_t vout_sense_data_filter; 
+ma16_u16_data_obj_t mains_sense_data_filter;
+
+//  for the pid controllers
+pid_data_obj_t voltage_pid;
+pid_data_obj_t current_pid;
+#define UNDERSAMPLING_TICKS    10
+
 // ------- de los timers -------
 
-//--- FUNCIONES DEL MODULO ---//
+// Module Functions ----------------------------------------
 void TimingDelay_Decrement(void);
-
+unsigned short CurrentLoop (unsigned short, unsigned short);
+unsigned short VoltageLoop (unsigned short, unsigned short);
 
 
 //-------------------------------------------//
@@ -101,14 +64,19 @@ void TimingDelay_Decrement(void);
 // @param  None
 // @retval None
 //------------------------------------------//
+//variables reuse
+#define vin_sense_filtered battery_sense_filtered
+
 int main(void)
 {
-    unsigned short i = 0;
-    main_state_t main_state = INIT;
-    unsigned char protected = 0;
-    unsigned char calc_filters = 0;
+    unsigned short boost_sense_filtered = 0;
+    unsigned short battery_sense_filtered = 0;
+    unsigned short iout_sense_filtered = 0;
+    unsigned short vout_sense_filtered = 0;
+    unsigned short mains_sense_filtered = 0;
+
     unsigned char undersampling = 0;
-    unsigned short vin_filtered = 0;
+    main_state_t main_state = INIT;
     
 #ifdef WITH_POTE_CTRL
     unsigned int setpoint;
@@ -124,10 +92,6 @@ int main(void)
     //GPIO Configuration.
     GPIO_Config();
 
-    //TIM Configuration.
-    // TIM_3_Init();
-    // TIM_14_Init();
-
     //ACTIVAR SYSTICK TIMER
     if (SysTick_Config(48000))
     {
@@ -138,7 +102,7 @@ int main(void)
             else
                 LED_ON;
 
-            for (i = 0; i < 255; i++)
+            for (unsigned char i = 0; i < 255; i++)
             {
                 asm (	"nop \n\t"
                         "nop \n\t"
@@ -147,78 +111,60 @@ int main(void)
         }
     }
 
-    //prueba led y wait
-    // while (1)
-    // {
-    //     if (LED)
-    //         LED_OFF;
-    //     else
-    //         LED_ON;
-
-    //     Wait_ms(1000);
-    // }
-    //fin prueba led y wait
-
-    //prueba modulo adc.c tim.c e int adc
-    // TIM_3_Init();
-    // Update_TIM3_CH2 (5);
-
-    // AdcConfig();
-    // ADC1->CR |= ADC_CR_ADSTART;
-    
-    // while (1)
-    // {
-    //     if (seq_ready)
-    //     {
-    //         seq_ready = 0;
-    //         if (LED)
-    //             LED_OFF;
-    //         else
-    //             LED_ON;
-    //         // LED_OFF;
-    //     }
-    // }               
-    //fin prueba modulo adc.c tim.c e int adc
-
     TIM_3_Init();
-    Update_TIM3_CH2 (0);
+    CTRL_MOSFET (DUTY_NONE);
 
+    //ADC and DMA configuration
     AdcConfig();
+    DMAConfig();
+    DMA1_Channel1->CCR |= DMA_CCR_EN;
     ADC1->CR |= ADC_CR_ADSTART;
-    ChangeLed(LED_STANDBY);
+    //end of ADC & DMA
 
+    ChangeLed(LED_STANDBY);
     timer_standby = 1000;
 
-    //prueba led pwm contra adc
-    // Update_TIM3_CH2(DUTY_10_PERCENT);
-    // while (1)
-    // {
-    //     // if (timer_led_pwm < 512)
-    //     if (timer_led_pwm < Vout_Sense)
-    //     // if (timer_led_pwm < One_Ten_Pote)
-    //         LED_ON;
-    //     else
-    //         LED_OFF;
+    //start the circular filters
+    MA16_U16Circular_Reset(&boost_sense_data_filter);
+    MA16_U16Circular_Reset(&battery_sense_data_filter);
+    MA16_U16Circular_Reset(&iout_sense_data_filter);
+    MA16_U16Circular_Reset(&vout_sense_data_filter);
+    MA16_U16Circular_Reset(&mains_sense_data_filter);
 
-    //     if (timer_led_pwm > TIMER_LED_RELOAD)
-    //         timer_led_pwm = 0;
+    // Initial Setup for PID Controller
+    PID_Small_Ki_Flush_Errors(&voltage_pid);
+    PID_Small_Ki_Flush_Errors(&current_pid);
 
-    //     // if (LED)
-    //     //     LED_OFF;
-    //     // else
-    //     //     LED_ON;
+    voltage_pid.kp = 128;
+    voltage_pid.ki = 16;
+    voltage_pid.kd = 0;
+    current_pid.kp = 128;
+    current_pid.ki = 16;
+    current_pid.kd = 0;
+    unsigned short d = 0;
 
-    //     // Wait_ms(20);
-    // }
-    //fin prueba led pwm contra adc
+    timer_standby = 100;    //doy tiempo a los filtros
 
-
-
+#ifdef SOFT_BACKUP_TECNOCOM
+    unsigned char mains_is_present = 1;
+#endif
     
     while (1)
     {
-        switch (main_state)
+        //Most work involved is sample by sample
+        if (sequence_ready)
         {
+            sequence_ready_reset;
+
+            //filters
+            boost_sense_filtered = MA16_U16Circular(&boost_sense_data_filter, Boost_Sense);
+            battery_sense_filtered = MA16_U16Circular(&battery_sense_data_filter, VBat_Sense);
+            iout_sense_filtered = MA16_U16Circular(&iout_sense_data_filter, Iout_Sense);
+            vout_sense_filtered = MA16_U16Circular(&vout_sense_data_filter, Vout_Sense);
+            mains_sense_filtered = MA16_U16Circular(&mains_sense_data_filter, Vmains_Sense);
+            
+            switch (main_state)
+            {
             case INIT:
                 if (!timer_standby)
                     main_state++;
@@ -226,158 +172,138 @@ int main(void)
                 break;
 
             case STAND_BY:
-                if (vin_filtered < IN_9_5V)    //baja tension aviso el error
+                if (vin_sense_filtered < MIN_INPUT_VOLTAGE)    //baja tension aviso el error
                 {
                     main_state = LOW_INPUT;
                     ChangeLed(LED_LOW_VOLTAGE);
                     timer_standby = 100;
                 }
-                else if (vin_filtered > IN_20V)    //exceso de tension, aviso del error
+                else if (vin_sense_filtered > MAX_INPUT_VOLTAGE)    //exceso de tension, aviso del error
                 {
                     main_state = HIGH_INPUT;
                     ChangeLed(LED_HIGH_VOLTAGE);
                     timer_standby = 100;                    
-                }                
+                }
+#ifdef WITH_POTE_CTRL
                 else if (voneten_filtered > ONE_TEN_ON)
                 {
                     //paso a generar
                     main_state = GENERATING;
                     ChangeLed(LED_GENERATING);
-                    d = 0;
-                    ez1 = 0;
-                    ez2 = 0;
+                    PID_Small_Ki_Flush_Errors(&current_pid);
+                }
+#else    //FIXED_CTRL
+                else
+                {
+                    //paso a generar
+                    main_state = GENERATING;
+                    ChangeLed(LED_GENERATING);
+                    PID_Small_Ki_Flush_Errors(&voltage_pid);
+                    PID_Small_Ki_Flush_Errors(&current_pid);
                 }                
+#endif
                 break;
 
             case GENERATING:
-                if (!protected)
+                if (Vout_Sense > MAX_VOUT)    //maxima tension permitida sin cortar lazo
                 {
-                    if (!JUMPER_NO_GEN)
-                    {              
-                        if (seq_ready)
-                        {
-                            seq_ready = 0;
-
-                            if (Vout_Sense > MAX_VOUT)    //maxima tension permitida sin cortar lazo
-                            {
-                                d = 0;
-                                Update_TIM3_CH2 (d);
-                            }
-                            else
-                            {
-                                if (undersampling < UNDERSAMPLING_TICKS)
-                                    undersampling++;
-                                else
-                                {
-                                    //reviso lazo V o I
-                                    if (Vout_Sense > VOUT_SETPOINT)    //uso lazo V
-                                    {
-                                        d = PID_roof (VOUT_SETPOINT, Vout_Sense, d, &ez1, &ez2);
-                                    }
-                                    else    //uso lazo I
-                                    {
-#ifdef AUTOMATIC_CTRL
-                                        if (!timer_standby)
-                                        {
-                                            timer_standby = 5;    //con 5 va, 7 ya no
-                                            if (subiendo)
-                                            {
-                                                if (ii < 63)
-                                                    ii++;
-                                                else
-                                                    subiendo = 0;
-                                            }
-                                            else
-                                            {
-                                                if (ii > 33)
-                                                    ii--;
-                                                else
-                                                    subiendo = 1;
-                                            }
-
-
-                                            setpoint = ii;
-                                        }
-                                            
-                                        d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
-#endif
-#ifdef WITH_POTE_CTRL
-                                        setpoint = IOUT_SETPOINT * voneten_filtered;
-                                        setpoint >>= 10;
-                                        if (setpoint < IOUT_MIN)
-                                            setpoint = IOUT_MIN;
-                                        d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
-#endif
-#ifdef FIXED_CTRL
-                                        d = PID_roof (IOUT_SETPOINT, Iout_Sense, d, &ez1, &ez2);
-#endif                                        
-                                    }
-
-                                    if (d < 0)
-                                        d = 0;
-
-                                    if (d > DUTY_80_PERCENT)	//no pasar del 90%
-                                        d = DUTY_80_PERCENT;
-
-                                    Update_TIM3_CH2 (d);
-
-                                }                                
-                            }    //cierra Vout max
-                        }    //cierra sequence
-                    }    //cierra jumper protected
-                    else
-                    {
-                        //me piden que no envie senial y proteja
-                        Update_TIM3_CH2 (0);
-                        protected = 1;
-                        ChangeLed(LED_PROTECTED);
-                    }
-                }    //cierra variable protect
+                    d = 0;
+                    CTRL_MOSFET (d);
+                }
                 else
                 {
-                    //estoy protegido reviso si tengo que salir
-                    if (!JUMPER_NO_GEN)
+                    if (undersampling < UNDERSAMPLING_TICKS)
+                        undersampling++;
+                    else
                     {
-                        protected = 0;
-                        ChangeLed(LED_GENERATING);
-                        d = 0;
-                        ez1 = 0;
-                        ez2 = 0;
-                    }
-                }
+                        //reviso lazo V o I
+                        if (Vout_Sense > VOUT_SETPOINT)    //uso lazo V
+                        {
+                            d = VoltageLoop (VOUT_SETPOINT, Vout_Sense);
+                        }
+                        else    //uso lazo I
+                        {
+#ifdef AUTOMATIC_CTRL
+                            if (!timer_standby)
+                            {
+                                timer_standby = 5;    //con 5 va, 7 ya no
+                                if (subiendo)
+                                {
+                                    if (ii < 63)
+                                        ii++;
+                                    else
+                                        subiendo = 0;
+                                }
+                                else
+                                {
+                                    if (ii > 33)
+                                        ii--;
+                                    else
+                                        subiendo = 1;
+                                }
 
+
+                                setpoint = ii;
+                            }
+                                            
+                            d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
+#endif
+#ifdef WITH_POTE_CTRL
+                            setpoint = IOUT_SETPOINT * voneten_filtered;
+                            setpoint >>= 10;
+                            if (setpoint < IOUT_MIN)
+                                setpoint = IOUT_MIN;
+                            d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
+#endif
+#ifdef FIXED_CTRL
+#ifdef SOFT_BACKUP_TECNOCOM
+                            if (mains_is_present)
+                                d = CurrentLoop (IOUT_SETPOINT, Iout_Sense);
+                            else
+                                d = CurrentLoop (IOUT_SP_BATTERY, Iout_Sense);
+#endif
+                            d = CurrentLoop (IOUT_SETPOINT, Iout_Sense);
+#endif                                        
+                        }
+                        CTRL_MOSFET (d);
+                    }                                
+                }    //cierra Vout max
+
+                //TODO: VER ESTO!!!
                 //reviso tensiones de alimentacion
-                if (vin_filtered > IN_20V)
+                if (vin_sense_filtered > IN_20V)
                 {
                     //dejo de generar y vuelvo a 220
-                    Update_TIM3_CH2(0);
+                    CTRL_MOSFET(0);
                     ChangeLed(LED_HIGH_VOLTAGE);
                     main_state = HIGH_INPUT;
                     timer_standby = 500;
                 }
 
                 //reviso si esta ya muy baja la entrada
-                if (vin_filtered < IN_9_5V)
+                if (vin_sense_filtered < IN_9_5V)
                 {
-                    Update_TIM3_CH2(0);
+                    CTRL_MOSFET(0);
                     ChangeLed(LED_LOW_VOLTAGE);
                     main_state = LOW_INPUT;
                     timer_standby = 500;
                 }
 
+#ifdef WITH_POTE_CTRL
                 if (voneten_filtered < ONE_TEN_OFF)
                 {
-                    Update_TIM3_CH2(0);
+                    CTRL_MOSFET(0);
                     ChangeLed(LED_STANDBY);
                     main_state = INIT;
                     timer_standby = 500;
-                }                    
+                }
+#endif
                 break;
 
             case LOW_INPUT:
                 if (!timer_standby)
                 {
-                    if (vin_filtered > IN_11_5V)
+                    if (vin_sense_filtered > IN_11_5V)
                     {
                         //tengo buena tension de entrada                   
                         main_state = STAND_BY;
@@ -390,7 +316,7 @@ int main(void)
             case HIGH_INPUT:
                 if (!timer_standby)
                 {
-                    if (vin_filtered < IN_16V)
+                    if (vin_sense_filtered < IN_16V)
                     {
                         //tengo bien la entrada
                         main_state = STAND_BY;
@@ -402,21 +328,65 @@ int main(void)
                 
             case OVERCURRENT:
                 break;
+
+            case JUMPER_PROTECTED:
+                if (!timer_standby)
+                {
+                    if (!STOP_JUMPER)
+                    {
+                        main_state = JUMPER_PROTECT_OFF;
+                        timer_standby = 400;
+                    }
+                }                
+                break;
+
+            case JUMPER_PROTECT_OFF:
+                if (!timer_standby)
+                {
+                    //vuelvo a INIT
+                    main_state = INIT;
+                }                
+                break;            
                 
             default:
+                main_state = INIT;
                 break;
+            }
+        }    //end sequence_ready
+
+        //
+        //The things that are not directly attached to the samples period
+        //
+
+#ifdef SOFT_BACKUP_TECNOCOM
+        //reviso tension de alimentacion principal
+        if (mains_sense_filtered < MAINS_LOW_VOLTAGE)
+        {
+            if (mains_is_present)
+            {
+                if (main_state == GENERATING)
+                    ChangeLed(LED_GENERATING_BATTERY);
+            }
+            mains_is_present = 0;
         }
-        
-        // if (seq_ready)
+        else if (mains_sense_filtered > MAINS_VOLTAGE_TO_RECONNECT)
+        {
+            if (!mains_is_present)
+            {
+                if (main_state == GENERATING)
+                    ChangeLed(LED_GENERATING);
+            }
+            mains_is_present = 1;
+        }
+#endif
+        // if ((board_state != OUTPUT_OVERVOLTAGE) &&
+        //     (sense_boost_filtered > VOUT_MAX_THRESHOLD))
         // {
-        //     seq_ready = 0;
-        //     // if (LED)
-        //         // LED_OFF;
-        //     // else
-        //         // LED_ON;
-        //     LED_OFF;
+        //     CTRL_MOSFET(DUTY_NONE);
+        //     board_state = OUTPUT_OVERVOLTAGE;
+        //     ChangeLed(LED_OUTPUT_OVERVOLTAGE);
         // }
-        
+            
         //envio de info analogica al ledpwm
 #ifdef LED_SHOW_INTERNAL_VALUES
 #ifdef AUTOMATIC_CTRL        
@@ -442,94 +412,76 @@ int main(void)
         UpdateLed();
 #endif
         
-        if (!timer_filters)
+        if ((STOP_JUMPER) &&
+            (main_state != JUMPER_PROTECTED) &&
+            (main_state != JUMPER_PROTECT_OFF) &&            
+            (main_state != OVERCURRENT))
         {
-            vin[0] = Vin_Sense;
-            voneten[0] = One_Ten_Pote;
-            calc_filters = 1;
-            timer_filters = 5;
+            CTRL_MOSFET(DUTY_NONE);
+            
+            ChangeLed(LED_JUMPER_PROTECTED);
+            main_state = JUMPER_PROTECTED;
+            timer_standby = 1000;
         }
 
-        switch (calc_filters)    //distribuyo filtros en varios pasos
-        {
-            case 1:
-                vin_filtered = MAFilter8(vin);
-                calc_filters++;
-                break;
-
-            case 2:
-#ifdef WITH_POTE_CTRL
-                voneten_filtered = MAFilter8(voneten);
-#endif
-                calc_filters++;
-                break;
-
-            case 3:
-                break;
-
-        }                    
-    }               
-
-    // AdcConfig();
-    // ADC1->CR |= ADC_CR_ADSTART;
-    
-    // TIM_14_Init();
-    // UpdateLaserCh1(0);
-    // UpdateLaserCh2(0);
-    // UpdateLaserCh3(0);
-    // UpdateLaserCh4(0);
-
-    // USART1Config();
-
-    
-    // while (1)
-    // {        
-    //     TreatmentManager();
-    //     UpdateCommunications();
-    //     UpdateLed();
-    //     UpdateBuzzer();
-    // }
-    // //fin prueba modulo signals.c comm.c tim.c adc.c
-
-    //prueba modulo adc.c tim.c e int adc
-    // TIM_3_Init();
-    // Update_TIM3_CH1(511);
-    // Update_TIM3_CH2(0);
-    // Update_TIM3_CH3(0);
-    // Update_TIM3_CH4(0);
-
-    // AdcConfig();
-    // ADC1->CR |= ADC_CR_ADSTART;
-    
-    // while (1)
-    // {
-    //     if (seq_ready)
-    //     {
-    //         seq_ready = 0;
-    //         if (LED)
-    //             LED_OFF;
-    //         else
-    //             LED_ON;
-    //     }
-    // }               
-    //fin prueba modulo adc.c tim.c e int adc
-
-
-
-    // Update_TIM3_CH1(511);
-    // Update_TIM3_CH2(511);
-    // Update_TIM3_CH3(511);
-    // Update_TIM3_CH4(511);
-    // while (1);
-    
-
-
-
-
+    }    //end while 1
 
     return 0;
 }
 //--- End of Main ---//
+
+
+unsigned short CurrentLoop (unsigned short setpoint, unsigned short new_sample)
+{
+    short d = 0;
+    
+    current_pid.setpoint = setpoint;
+    current_pid.sample = new_sample;
+    d = PID_Small_Ki(&current_pid);
+                    
+    if (d > 0)
+    {
+        if (d > DUTY_FOR_DMAX)
+        {
+            d = DUTY_FOR_DMAX;
+            current_pid.last_d = DUTY_FOR_DMAX;
+        }
+    }
+    else
+    {
+        d = DUTY_NONE;
+        current_pid.last_d = DUTY_NONE;
+    }
+
+    return (unsigned short) d;
+}
+
+
+unsigned short VoltageLoop (unsigned short setpoint, unsigned short new_sample)
+{
+    short d = 0;
+    
+    voltage_pid.setpoint = setpoint;
+    voltage_pid.sample = new_sample;
+    d = PID_Small_Ki(&voltage_pid);
+                    
+    if (d > 0)
+    {
+        if (d > DUTY_FOR_DMAX)
+        {
+            d = DUTY_FOR_DMAX;
+            voltage_pid.last_d = DUTY_FOR_DMAX;
+        }
+    }
+    else
+    {
+        d = DUTY_NONE;
+        voltage_pid.last_d = DUTY_NONE;
+    }
+
+    return (unsigned short) d;
+}
+
 
 void TimingDelay_Decrement(void)
 {

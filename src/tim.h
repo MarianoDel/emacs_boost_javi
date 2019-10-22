@@ -1,24 +1,24 @@
-/**
-  ******************************************************************************
-  * @file    Template_2/main.h
-  * @author  Nahuel
-  * @version V1.0
-  * @date    22-August-2014
-  * @brief   Header for tim module
-  ******************************************************************************
-  * @attention
-  *
-  *
-  *
-  ******************************************************************************
-  */
+//---------------------------------------------
+// ##
+// ## @Author: Med
+// ## @Editor: Emacs - ggtags
+// ## @TAGS:   Global
+// ##
+// #### TIM.H ################################
+//---------------------------------------------
 
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef _TIM_H_
 #define _TIM_H_
 
 //--- Exported types ---//
+
 //--- Exported constants ---//
+#define DUTY_NONE		(DUTY_00_PERCENT)
+#define DUTY_FOR_DMAX           (DUTY_80_PERCENT)
+#define DUTY_ALWAYS        (DUTY_100_PERCENT + 1)
+
+#define DUTY_00_PERCENT        0
 #define DUTY_05_PERCENT		50
 #define DUTY_10_PERCENT		100
 #define DUTY_20_PERCENT		200
@@ -28,7 +28,7 @@
 #define DUTY_90_PERCENT		900
 #define DUTY_95_PERCENT		950
 #define DUTY_100_PERCENT	1000
-#define DUTY_ALWAYS			(DUTY_100_PERCENT + 1)
+
 
 //--- Exported macro ---//
 #define RCC_TIM1_CLK 		(RCC->APB2ENR & 0x00000800)
@@ -59,6 +59,7 @@
 #define RCC_TIM17_CLK_ON 	RCC->APB2ENR |= 0x00040000
 #define RCC_TIM17_CLK_OFF 	RCC->APB2ENR &= ~0x00040000
 
+#define CTRL_MOSFET(X)    Update_TIM3_CH2(X)
 
 //--- Exported functions ---//
 void TIM3_IRQHandler (void);

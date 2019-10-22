@@ -1,18 +1,21 @@
-/*
- * adc.h
- *
- *  Created on: 10/09/2014
- *      Author: Mariano
- */
-
+//---------------------------------------------
+// ##
+// ## @Author: Med
+// ## @Editor: Emacs - ggtags
+// ## @TAGS:   Global
+// ## @CPU:    STM32F030
+// ##
+// #### ADC.H #################################
+//---------------------------------------------
 #ifndef _ADC_H_
 #define _ADC_H_
 
+#include "hard.h"		//por configuracion diferentes en V1_0 y V1_1
+
 //----------- Defines For Configuration --------------//
 //----------- Some ADC Configurations ----------------//
-//Revisar hard.h para algunas otras configuraciones/definiciones
-#define ADC_WITH_INT
-
+// #define ADC_WITH_INT
+#define ADC_WITH_DMA
 
 #ifdef WITH_TEMP_CONTROL
 #define ADC_WITH_TEMP_SENSE
@@ -23,10 +26,29 @@
 #endif
 //----------- End of ADC Configurations --------------//
 
+//---- ADC configurations ----//
+#define Boost_Sense     adc_ch[0]
+#define Vin_Sense       adc_ch[1]
+#define Iout_Sense      adc_ch[2]
+#define Vout_Sense      adc_ch[3]
+#define One_Ten_Pote    adc_ch[4]
+#define VBat_Sense    Vin_Sense
+#define Vmains_Sense    One_Ten_Pote
+#define ADC_CHANNEL_QUANTITY         5
+#define ADC_LAST_CHANNEL_QUANTITY    (ADC_CHANNEL_QUANTITY - 1)
+
+
 
 #define RCC_ADC_CLK 		(RCC->APB2ENR & 0x00000200)
 #define RCC_ADC_CLK_ON 		RCC->APB2ENR |= 0x00000200
 #define RCC_ADC_CLK_OFF 	RCC->APB2ENR &= ~0x00000200
+
+/* Temperature sensor calibration value address */
+#define TEMP110_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7C2))
+#define TEMP30_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7B8))
+#define VDD_CALIB ((uint16_t) (330))
+#define VDD_APPLI ((uint16_t) (330))
+
 
 #define ADC_IT_ADRDY                               ADC_IER_ADRDYIE
 #define ADC_IT_EOSMP                               ADC_IER_EOSMPIE
@@ -38,6 +60,8 @@
 #define ADC_CH0		0x00000001
 #define ADC_CH1		0x00000002
 #define ADC_CH2		0x00000004
+
+#define ADC_CH16		0x00010000
 
 #define ADC_Channel_0                              ADC_CHSELR_CHSEL0
 #define ADC_Channel_1                              ADC_CHSELR_CHSEL1
@@ -129,6 +153,7 @@
 
 #define CALIBRATION_TIMEOUT       ((uint32_t)0x0000F000)
 
+//--- Exported Module Functions ------------
 void AdcConfig (void);
 unsigned short ReadADC1 (unsigned int);
 unsigned short ReadADC1_SameSampleTime (unsigned int);
@@ -136,4 +161,10 @@ void SetADC1_SampleTime (void);
 unsigned short ReadADC1Check (unsigned char);
 unsigned int ADCGetCalibrationFactor (void);
 
-#endif /* ADC_H_ */
+#ifdef ADC_WITH_TEMP_SENSE
+void UpdateTemp(void);
+unsigned short GetTemp (void);
+void FillTempBuffer (void);
+short ConvertTemp (unsigned short);
+#endif
+#endif /* _ADC_H_ */

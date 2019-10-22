@@ -18,25 +18,74 @@
 #define HARDWARE_VERSION_1_0
 
 
-#define SOFTWARE_VERSION_1_0
-// #define SOFTWARE_VERSION_1_1
+#define SOFTWARE_VERSION_1_0    //BOOST JAVI
+// #define SOFTWARE_VERSION_1_1    //BOOST TECNOCOM
 
+#define SOFT_BACKUP_TECNOCOM
+// #define SOFT_BOOST_JAVI
 //---- Features Configuration ----------------
+#ifdef SOFTWARE_VERSION_1_0
 // #define AUTOMATIC_CTRL
-#define WITH_POTE_CTRL
-// #define FIXED_CTRL
+// #define WITH_POTE_CTRL
+#define FIXED_CTRL
+#endif
 
-#define ONE_RSENSE
-// #define TWO_RSENSE
 
 #define LED_SHOW_STATUS
 // #define LED_SHOW_INTERNAL_VALUES
 
-//------ Configuration for Firmware-Channels -----
+//------ Hardware Config -----
+#define ONE_RSENSE
+// #define TWO_RSENSE
 
 
 //---- End of Features Configuration ----------
 
+//---- Voltage Measurements Settings ----------
+#define VOUT_SETPOINT    OUT_40V
+#define MAX_VOUT         OUT_45V
+
+#define IOUT_SETPOINT    IOUT_700MA
+#define IOUT_SP_BATTERY    IOUT_200MA
+#define IOUT_MIN         IOUT_007MA
+
+#define MIN_INPUT_VOLTAGE    IN_9_5V
+#define MAX_INPUT_VOLTAGE    IN_20V
+
+#define MAINS_LOW_VOLTAGE    IN_9_5V
+#define MAINS_VOLTAGE_TO_RECONNECT    IN_11_5V
+
+//tensionde entrada dividido 13
+#define IN_9_5V     215    //son 9V en el sensor
+#define IN_11_5V    262    //son 11V en el sensor
+#define IN_16V      382
+#define IN_20V      477 
+
+//tension de salida dividido 23
+#define OUT_24V      323
+#define OUT_35V      471
+#define OUT_40V      539
+#define OUT_45V      606
+
+#ifdef TWO_RSENSE
+//corriente de salida por 1.49V/A
+#define IOUT_007MA    33   
+#define IOUT_350MA    161
+#define IOUT_700MA    323
+#define IOUT_1000MA   461
+#endif
+
+#ifdef ONE_RSENSE
+//corriente de salida por 2.8V/A
+#define IOUT_007MA    66    
+#define IOUT_200MA    175
+#define IOUT_350MA    305
+#define IOUT_700MA    611
+#define IOUT_1000MA   872
+#endif
+
+#define ONE_TEN_ON    25
+#define ONE_TEN_OFF   16
 
 
 //--- Hardware Welcome Code ------------------//
@@ -69,25 +118,25 @@
 
 //-- End Of Defines For Configuration ---------------
 
-//GPIOA pin0
-//GPIOA pin1
-//GPIOA pin2    3 ADC channels
+//GPIOA pin0    Boost_Sense
+//GPIOA pin1    Vin_Sense (JAVI) VBat_Sense (TECNOCOM)
+//GPIOA pin2    Iout_Sense -- 3 ADC channels
 
 //GPIOA pin3
 //GPIOA pin4    NC
 
-//GPIOA pin5
-//GPIOA pin6    2 ADC channels
+//GPIOA pin5    Vout_Sense
+//GPIOA pin6    One_Ten_Pote (JAVI) Vmains_Sense (TECNOCOM) -- 2 ADC channels
 
-//GPIOA pin7
+//GPIOA pin7    NC
 
 //GPIOB pin0
 #define LED ((GPIOB->ODR & 0x0001) != 0)
 #define LED_ON GPIOB->BSRR = 0x00000001
 #define LED_OFF GPIOB->BSRR = 0x00010000
 
-//GPIOB pin1    JUMPER NO GEN
-#define JUMPER_NO_GEN ((GPIOB->IDR & 0x0002) == 0)
+//GPIOB pin1    
+#define STOP_JUMPER ((GPIOB->IDR & 0x0002) == 0)
 
 //GPIOA pin8    
 //GPIOA pin9
@@ -96,10 +145,10 @@
 //GPIOA pin12
 //GPIOA pin13
 //GPIOA pin14    
-//GPIOA pin15    
+//GPIOA pin15    NC
 
 //GPIOB pin3     
-//GPIOB pin4
+//GPIOB pin4    NC
 
 //GPIOB pin5     TIM3_CH2
 #define CTRL_BOOST ((GPIOB->ODR & 0x0020) != 0)
@@ -109,6 +158,7 @@
 //GPIOB pin6
 //GPIOB pin7    NC
 
+
 //ESTADOS DEL PROGRAMA PRINCIPAL
 typedef enum {
     INIT = 0,
@@ -116,7 +166,10 @@ typedef enum {
     GENERATING,
     LOW_INPUT,
     HIGH_INPUT,
-    OVERCURRENT
+    OVERCURRENT,
+    JUMPER_PROTECTED,
+    JUMPER_PROTECT_OFF
+    
 } main_state_t;
           
 
@@ -134,18 +187,12 @@ typedef enum
 #define LED_NO_BLINKING               0
 #define LED_STANDBY                   1
 #define LED_GENERATING                2
-#define LED_LOW_VOLTAGE               3
-#define LED_HIGH_VOLTAGE              4
-#define LED_PROTECTED                 5
-#define LED_OVERCURRENT_ERROR         6
+#define LED_GENERATING_BATTERY        3
+#define LED_LOW_VOLTAGE               4
+#define LED_HIGH_VOLTAGE              5
+#define LED_JUMPER_PROTECTED          6
+#define LED_OVERCURRENT_ERROR         7
 
-//---- ADC configurations ----//
-#define ADC_CH_QUANTITY        5
-#define Boost_Sense     adc_ch[0]
-#define Vin_Sense       adc_ch[1]
-#define Iout_Sense      adc_ch[2]
-#define Vout_Sense      adc_ch[3]
-#define One_Ten_Pote    adc_ch[4]
 
 /* Module Functions ------------------------------------------------------------*/
 void ChangeLed (unsigned char);

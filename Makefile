@@ -26,8 +26,11 @@ BIN  = $(CP) -O binary -S
 MCU  = cortex-m0
 
 # List all default C defines here, like -D_DEBUG=1
-#DDEFS = -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER -DUSE_STM3210E_EVAL
-#DDEFS = -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER -DUSE_STM3210E_EVAL -D__GNUC__
+#para el micro STM32F051C8T6
+# DDEFS = -DSTM32F051
+#para el micro STM32F030K6T6
+DDEFS = -DSTM32F030
+
 # List all default ASM defines here, like -D_DEBUG=1
 DADEFS =
 
@@ -78,36 +81,14 @@ LINKER = ./cmsis_boot/startup
 SRC  = ./src/main.c
 SRC += $(DEVDIR)/system_stm32f0xx.c
 SRC += $(DEVDIR)/syscalls/syscalls.c
-## Libs de ST V1.3 o V1.5
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_adc.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_can.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_cec.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_comp.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_crc.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_crs.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_dac.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_dbgmcu.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_dma.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_exti.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_flash.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_gpio.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_i2c.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_iwdg.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_misc.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_pwr.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_rcc.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_rtc.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_spi.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_syscfg.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_tim.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_usart.c
-#SRC += $(STMSPSRCDDIR)/stm32f0xx_wwdg.c
+
 SRC += ./src/it.c
 SRC += ./src/gpio.c
 SRC += ./src/tim.c
 SRC += ./src/adc.c
 #SRC += ./src/uart.c
 SRC += ./src/dsp.c
+SRC += ./src/dma.c
 SRC += ./src/hard.c
 # SRC += ./src/programs_functions.c
 ## System Support
@@ -169,7 +150,7 @@ ASFLAGS = $(MCFLAGS) -g -gdwarf-2 -mthumb  -Wa,-amhls=$(<:.s=.lst) $(ADEFS)
 #CPFLAGS = $(MCFLAGS) $(OPT) -g -gdwarf-2 -mthumb -fomit-frame-pointer -Wall -fverbose-asm -Wa,-ahlms=$(<:.c=.lst) $(DEFS)
 
 # CON INFO PARA DEBUGGER + STRIP CODE
-CPFLAGS = $(MCFLAGS) $(OPT) -g -gdwarf-2 -mthumb -fomit-frame-pointer -Wall -fdata-sections -ffunction-sections -fverbose-asm -Wa,-ahlms=$(<:.c=.lst)
+CPFLAGS = $(MCFLAGS) $(OPT) -g -gdwarf-2 -mthumb -fomit-frame-pointer -Wall -fdata-sections -ffunction-sections -fverbose-asm -Wa,-ahlms=$(<:.c=.lst) $(DDEFS)
 
 # SIN DEAD CODE, hace el STRIP
 LDFLAGS = $(MCFLAGS) -mthumb --specs=nano.specs -Wl,--gc-sections -nostartfiles -T$(LDSCRIPT) -Wl,-Map=$(FULL_PRJ).map,--cref,--no-warn-mismatch $(LIBDIR)
