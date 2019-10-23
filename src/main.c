@@ -36,8 +36,6 @@ volatile unsigned short wait_ms_var = 0;
 
 
 // Globals -------------------------------------------------
-#define TIMER_LED_RELOAD    1024
-unsigned short timer_led_pwm = 0;
 
 //  for the filters
 ma16_u16_data_obj_t boost_sense_data_filter;
@@ -50,7 +48,7 @@ ma16_u16_data_obj_t mains_sense_data_filter;
 pid_data_obj_t voltage_pid;
 pid_data_obj_t current_pid;
 #define UNDERSAMPLING_TICKS    10
-
+#define SOFT_START_CNT_ROOF    4
 // ------- de los timers -------
 
 // Module Functions ----------------------------------------
@@ -76,19 +74,9 @@ int main(void)
     unsigned short mains_sense_filtered = 0;
 
     unsigned char undersampling = 0;
+    unsigned char soft_start_cnt = 0;
     main_state_t main_state = INIT;
     
-#ifdef WITH_POTE_CTRL
-    unsigned int setpoint;
-    unsigned short voneten_filtered = 0;
-#endif
-
-#ifdef AUTOMATIC_CTRL
-    unsigned int setpoint;    
-    unsigned short ii = 33;
-    unsigned char subiendo = 0;
-#endif
-
     //GPIO Configuration.
     GPIO_Config();
 
@@ -121,9 +109,6 @@ int main(void)
     ADC1->CR |= ADC_CR_ADSTART;
     //end of ADC & DMA
 
-    ChangeLed(LED_STANDBY);
-    timer_standby = 1000;
-
     //start the circular filters
     MA16_U16Circular_Reset(&boost_sense_data_filter);
     MA16_U16Circular_Reset(&battery_sense_data_filter);
@@ -145,10 +130,252 @@ int main(void)
 
     timer_standby = 100;    //doy tiempo a los filtros
 
-#ifdef SOFT_BACKUP_TECNOCOM
-    unsigned char mains_is_present = 1;
+#ifdef BOOST_BACKUP_TECNOCOM
+    while (1)
+    {
+        //Most work involved is sample by sample
+        if (sequence_ready)
+        {
+            sequence_ready_reset;
+
+            //filters
+            boost_sense_filtered = MA16_U16Circular(&boost_sense_data_filter, Boost_Sense);
+            battery_sense_filtered = MA16_U16Circular(&battery_sense_data_filter, VBat_Sense);
+            iout_sense_filtered = MA16_U16Circular(&iout_sense_data_filter, Iout_Sense);
+            vout_sense_filtered = MA16_U16Circular(&vout_sense_data_filter, Vout_Sense);
+            mains_sense_filtered = MA16_U16Circular(&mains_sense_data_filter, Vmains_Sense);
+            
+            switch (main_state)
+            {
+            case INIT:
+                if (!timer_standby)
+                {
+                    ChangeLed(LED_STANDBY);
+                    main_state++;
+                }
+                break;
+
+            case STAND_BY:
+                //reviso si genero desde 220Vac
+                if ((mains_sense_filtered > MAINS_TO_RECONNECT_VOLTAGE) &&
+                    (mains_sense_filtered < MAINS_HIGH_VOLTAGE))
+                {
+                    //paso a generar
+                    main_state = SOFT_START_FROM_MAINS;
+                    ChangeLed(LED_GENERATING_FROM_MAINS);
+                    PID_Small_Ki_Flush_Errors(&voltage_pid);
+                    PID_Small_Ki_Flush_Errors(&current_pid);
+                }
+                //reviso si genero de bateria
+                else if ((battery_sense_filtered > BATTERY_TO_RECONNECT_VOLTAGE) &&
+                         (battery_sense_filtered < BATTERY_MAX_VOLTAGE))
+                {
+                    main_state = SOFT_START_FROM_BATTERY;
+                    ChangeLed(LED_GENERATING_FROM_BATTERY);
+                    PID_Small_Ki_Flush_Errors(&voltage_pid);
+                    PID_Small_Ki_Flush_Errors(&current_pid);
+                }                
+                break;
+
+            case SOFT_START_FROM_MAINS:
+                soft_start_cnt++;
+                
+                //check to not go overvoltage
+                if (vout_sense_filtered < VOUT_FOR_SOFT_START)
+                {
+                    //do a soft start checking the voltage
+                    if (soft_start_cnt > SOFT_START_CNT_ROOF)    //update 200us aprox.
+                    {
+                        soft_start_cnt = 0;
+                    
+                        if (d < DUTY_FOR_DMAX)
+                        {
+                            d++;
+                            CTRL_MOSFET(d);
+                        }
+                        else
+                        {
+                            //update PID
+                            voltage_pid.last_d = d;
+                            main_state = GENERATING_FROM_MAINS;
+                        }
+                    }
+                }
+                else
+                {
+                    //update PID
+                    voltage_pid.last_d = d;
+                    main_state = GENERATING_FROM_MAINS;
+                }
+                break;
+
+            case GENERATING_FROM_MAINS:
+                if (Vout_Sense > MAX_VOUT)    //maxima tension permitida sin cortar lazo
+                {
+                    d = 0;
+                    CTRL_MOSFET (d);
+                }
+                else
+                {
+                    if (undersampling < UNDERSAMPLING_TICKS)
+                        undersampling++;
+                    else
+                    {
+                        //reviso lazo V o I
+                        if (Vout_Sense > VOUT_SETPOINT)    //uso lazo V
+                            d = VoltageLoop (VOUT_SETPOINT, Vout_Sense);
+
+                        else    //uso lazo I
+                            d = CurrentLoop (IOUT_SETPOINT, Iout_Sense);
+
+                        CTRL_MOSFET (d);
+                    }                                
+                }    //cierra Vout max
+
+                //si la tension de entrada baja paso a bateria directo
+                if (mains_sense_filtered < MAINS_LOW_VOLTAGE)
+                {
+                    main_state = GENERATING_FROM_BATTERY;
+                    ChangeLed(LED_GENERATING_FROM_BATTERY);
+                    timer_standby = 2000;
+                }
+                break;
+                
+            case SOFT_START_FROM_BATTERY:
+                soft_start_cnt++;
+                
+                //check to not go overvoltage
+                if (vout_sense_filtered < VOUT_FOR_SOFT_START)
+                {
+                    //do a soft start checking the voltage
+                    if (soft_start_cnt > SOFT_START_CNT_ROOF)    //update 200us aprox.
+                    {
+                        soft_start_cnt = 0;
+                    
+                        if (d < DUTY_FOR_DMAX)
+                        {
+                            d++;
+                            CTRL_MOSFET(d);
+                        }
+                        else
+                        {
+                            //update PID
+                            voltage_pid.last_d = d;
+                            main_state = GENERATING_FROM_BATTERY;
+                        }
+                    }
+                }
+                else
+                {
+                    //update PID
+                    voltage_pid.last_d = d;
+                    main_state = GENERATING_FROM_BATTERY;
+                }
+                break;
+
+            case GENERATING_FROM_BATTERY:
+                if (Vout_Sense > MAX_VOUT)    //maxima tension permitida sin cortar lazo
+                {
+                    d = 0;
+                    CTRL_MOSFET (d);
+                }
+                else
+                {
+                    if (undersampling < UNDERSAMPLING_TICKS)
+                        undersampling++;
+                    else
+                    {
+                        //reviso lazo V o I
+                        if (Vout_Sense > VOUT_SETPOINT)    //uso lazo V
+                            d = VoltageLoop (VOUT_SETPOINT, Vout_Sense);
+
+                        else    //uso lazo I
+                            d = CurrentLoop (IOUT_SP_BATTERY, Iout_Sense);
+
+                        CTRL_MOSFET (d);
+                    }                                
+                }    //cierra Vout max
+
+
+                if (!timer_standby)
+                {
+                    //estoy con bateria y vuelven los 220Vac
+                    if (mains_sense_filtered > MAINS_TO_RECONNECT_VOLTAGE)
+                    {
+                        main_state = GENERATING_FROM_MAINS;
+                        ChangeLed(LED_GENERATING_FROM_MAINS);
+                    }
+                    
+                    //estoy con bateria pero baja mucho
+                    if (battery_sense_filtered < BATTERY_MIN_VOLTAGE)
+                    {
+                        CTRL_MOSFET(DUTY_NONE);
+                        main_state = INIT;
+                    }
+                }
+                break;
+                
+            case OVERCURRENT:
+                break;
+
+            case JUMPER_PROTECTED:
+                if (!timer_standby)
+                {
+                    if (!STOP_JUMPER)
+                    {
+                        main_state = JUMPER_PROTECT_OFF;
+                        timer_standby = 400;
+                    }
+                }                
+                break;
+
+            case JUMPER_PROTECT_OFF:
+                if (!timer_standby)
+                {
+                    //vuelvo a INIT
+                    main_state = INIT;
+                }                
+                break;            
+                
+            default:
+                main_state = INIT;
+                break;
+            }
+        }    //end sequence_ready
+
+        //
+        //The things that are not directly attached to the samples period
+        //
+#ifdef LED_SHOW_STATUS
+        UpdateLed();
 #endif
-    
+        
+        if ((STOP_JUMPER) &&
+            (main_state != JUMPER_PROTECTED) &&
+            (main_state != JUMPER_PROTECT_OFF) &&            
+            (main_state != OVERCURRENT))
+        {
+            CTRL_MOSFET(DUTY_NONE);
+            
+            ChangeLed(LED_JUMPER_PROTECTED);
+            main_state = JUMPER_PROTECTED;
+            timer_standby = 1000;
+        }
+
+    }    //end while 1
+#endif    //BOOST BACKUP TECNOCOM
+
+#ifdef BOOST_JAVI
+#ifdef WITH_POTE_CTRL
+    unsigned int setpoint;
+    unsigned short voneten_filtered = 0;
+#endif
+#ifdef AUTOMATIC_CTRL
+    unsigned int setpoint;    
+    unsigned short ii = 33;
+    unsigned char subiendo = 0;
+#endif
+
     while (1)
     {
         //Most work involved is sample by sample
@@ -256,12 +483,6 @@ int main(void)
                             d = PID_roof ((unsigned short) setpoint, Iout_Sense, d, &ez1, &ez2);
 #endif
 #ifdef FIXED_CTRL
-#ifdef SOFT_BACKUP_TECNOCOM
-                            if (mains_is_present)
-                                d = CurrentLoop (IOUT_SETPOINT, Iout_Sense);
-                            else
-                                d = CurrentLoop (IOUT_SP_BATTERY, Iout_Sense);
-#endif
                             d = CurrentLoop (IOUT_SETPOINT, Iout_Sense);
 #endif                                        
                         }
@@ -269,7 +490,6 @@ int main(void)
                     }                                
                 }    //cierra Vout max
 
-                //TODO: VER ESTO!!!
                 //reviso tensiones de alimentacion
                 if (vin_sense_filtered > IN_20V)
                 {
@@ -357,57 +577,6 @@ int main(void)
         //
         //The things that are not directly attached to the samples period
         //
-
-#ifdef SOFT_BACKUP_TECNOCOM
-        //reviso tension de alimentacion principal
-        if (mains_sense_filtered < MAINS_LOW_VOLTAGE)
-        {
-            if (mains_is_present)
-            {
-                if (main_state == GENERATING)
-                    ChangeLed(LED_GENERATING_BATTERY);
-            }
-            mains_is_present = 0;
-        }
-        else if (mains_sense_filtered > MAINS_VOLTAGE_TO_RECONNECT)
-        {
-            if (!mains_is_present)
-            {
-                if (main_state == GENERATING)
-                    ChangeLed(LED_GENERATING);
-            }
-            mains_is_present = 1;
-        }
-#endif
-        // if ((board_state != OUTPUT_OVERVOLTAGE) &&
-        //     (sense_boost_filtered > VOUT_MAX_THRESHOLD))
-        // {
-        //     CTRL_MOSFET(DUTY_NONE);
-        //     board_state = OUTPUT_OVERVOLTAGE;
-        //     ChangeLed(LED_OUTPUT_OVERVOLTAGE);
-        // }
-            
-        //envio de info analogica al ledpwm
-#ifdef LED_SHOW_INTERNAL_VALUES
-#ifdef AUTOMATIC_CTRL        
-        if (timer_led_pwm < d)            
-#endif        
-#ifdef WITH_POTE_CTRL        
-        // if (timer_led_pwm < setpoint)
-        if (timer_led_pwm < d)            
-#endif
-#ifdef FIXED_CTRL
-        if (timer_led_pwm < Vout_Sense)
-#endif
-            LED_ON;
-        else
-            LED_OFF;
-
-        if (timer_led_pwm > TIMER_LED_RELOAD)
-            timer_led_pwm = 0;
-#endif
-        //fin envio de info analogica al ledpwm
-
 #ifdef LED_SHOW_STATUS
         UpdateLed();
 #endif
@@ -425,6 +594,7 @@ int main(void)
         }
 
     }    //end while 1
+#endif    //BOOST JAVI
 
     return 0;
 }
@@ -497,9 +667,6 @@ void TimingDelay_Decrement(void)
     if (timer_led)
         timer_led--;
 
-    if (timer_led_pwm < 0xFFFF)
-        timer_led_pwm ++;
-    
 }
 
 //--- end of file ---//

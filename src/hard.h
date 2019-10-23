@@ -14,17 +14,13 @@
 
 
 //-- Defines For Configuration -------------------
-//---- Configuration for Hardware Versions -------
-#define HARDWARE_VERSION_1_0
+//---- Configuration - Program Versions -------
+// #define BOOST_JAVI    //boost desde 12V generealmente con control de 1-10V
+#define BOOST_BACKUP_TECNOCOM    //boost desde 12V con fuente (700mA out) o bateria (200mA out)
 
 
-#define SOFTWARE_VERSION_1_0    //BOOST JAVI
-// #define SOFTWARE_VERSION_1_1    //BOOST TECNOCOM
-
-#define SOFT_BACKUP_TECNOCOM
-// #define SOFT_BOOST_JAVI
 //---- Features Configuration ----------------
-#ifdef SOFTWARE_VERSION_1_0
+#ifdef BOOST_JAVI
 // #define AUTOMATIC_CTRL
 // #define WITH_POTE_CTRL
 #define FIXED_CTRL
@@ -44,6 +40,7 @@
 //---- Voltage Measurements Settings ----------
 #define VOUT_SETPOINT    OUT_40V
 #define MAX_VOUT         OUT_45V
+#define VOUT_FOR_SOFT_START    OUT_24V
 
 #define IOUT_SETPOINT    IOUT_700MA
 #define IOUT_SP_BATTERY    IOUT_200MA
@@ -53,7 +50,12 @@
 #define MAX_INPUT_VOLTAGE    IN_20V
 
 #define MAINS_LOW_VOLTAGE    IN_9_5V
-#define MAINS_VOLTAGE_TO_RECONNECT    IN_11_5V
+#define MAINS_HIGH_VOLTAGE    IN_20V
+#define MAINS_TO_RECONNECT_VOLTAGE    IN_11_5V
+
+#define BATTERY_MIN_VOLTAGE    IN_9_5V
+#define BATTERY_MAX_VOLTAGE    IN_20V
+#define BATTERY_TO_RECONNECT_VOLTAGE    IN_11_5V
 
 //tensionde entrada dividido 13
 #define IN_9_5V     215    //son 9V en el sensor
@@ -87,25 +89,6 @@
 #define ONE_TEN_ON    25
 #define ONE_TEN_OFF   16
 
-
-//--- Hardware Welcome Code ------------------//
-#ifdef HARDWARE_VERSION_1_0
-#define HARD "Hardware Version: 1.0\n"
-#endif
-#ifdef HARDWARE_VERSION_2_0
-#define HARD "Hardware Version: 2.0\n"
-#endif
-
-//--- Software Welcome Code ------------------//
-#ifdef SOFTWARE_VERSION_1_2
-#define SOFT "Software Version: 1.2\n"
-#endif
-#ifdef SOFTWARE_VERSION_1_1
-#define SOFT "Software Version: 1.1\n"
-#endif
-#ifdef SOFTWARE_VERSION_1_0
-#define SOFT "Software Version: 1.0\n"
-#endif
 
 //-------- Configuration for Outputs-Channels -----
 
@@ -160,6 +143,7 @@
 
 
 //ESTADOS DEL PROGRAMA PRINCIPAL
+#ifdef BOOST_JAVI
 typedef enum {
     INIT = 0,
     STAND_BY,
@@ -171,7 +155,22 @@ typedef enum {
     JUMPER_PROTECT_OFF
     
 } main_state_t;
-          
+#endif
+
+#ifdef BOOST_BACKUP_TECNOCOM
+typedef enum {
+    INIT = 0,
+    STAND_BY,
+    SOFT_START_FROM_MAINS,
+    GENERATING_FROM_MAINS,
+    SOFT_START_FROM_BATTERY,
+    GENERATING_FROM_BATTERY,
+    OVERCURRENT,
+    JUMPER_PROTECTED,
+    JUMPER_PROTECT_OFF
+    
+} main_state_t;
+#endif
 
 //ESTADOS DEL LED
 typedef enum
@@ -187,12 +186,13 @@ typedef enum
 #define LED_NO_BLINKING               0
 #define LED_STANDBY                   1
 #define LED_GENERATING                2
-#define LED_GENERATING_BATTERY        3
+#define LED_GENERATING_FROM_BATTERY   3
 #define LED_LOW_VOLTAGE               4
 #define LED_HIGH_VOLTAGE              5
 #define LED_JUMPER_PROTECTED          6
 #define LED_OVERCURRENT_ERROR         7
 
+#define LED_GENERATING_FROM_MAINS  LED_GENERATING
 
 /* Module Functions ------------------------------------------------------------*/
 void ChangeLed (unsigned char);
