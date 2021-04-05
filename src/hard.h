@@ -114,12 +114,12 @@
 //GPIOA pin7    NC
 
 //GPIOB pin0
-#define LED ((GPIOB->ODR & 0x0001) != 0)
-#define LED_ON GPIOB->BSRR = 0x00000001
-#define LED_OFF GPIOB->BSRR = 0x00010000
+#define LED    ((GPIOB->ODR & 0x0001) != 0)
+#define LED_ON    (GPIOB->BSRR = 0x00000001)
+#define LED_OFF    (GPIOB->BSRR = 0x00010000)
 
 //GPIOB pin1    
-#define STOP_JUMPER ((GPIOB->IDR & 0x0002) == 0)
+#define STOP_JUMPER    ((GPIOB->IDR & 0x0002) == 0)
 
 //GPIOA pin8    
 //GPIOA pin9
@@ -134,9 +134,9 @@
 //GPIOB pin4    NC
 
 //GPIOB pin5     TIM3_CH2
-#define CTRL_BOOST ((GPIOB->ODR & 0x0020) != 0)
-#define CTRL_BOOST_ON GPIOB->BSRR = 0x00000020     //esto es estado alto Hi-z
-#define CTRL_BOOST_OFF GPIOB->BSRR = 0x00200000    //esto es estado bajo 0V
+#define CTRL_BOOST    ((GPIOB->ODR & 0x0020) != 0)
+#define CTRL_BOOST_ON    (GPIOB->BSRR = 0x00000020)     //esto es estado alto Hi-z
+#define CTRL_BOOST_OFF    (GPIOB->BSRR = 0x00200000)    //esto es estado bajo 0V
 
 //GPIOB pin6
 //GPIOB pin7    NC

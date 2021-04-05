@@ -1,0 +1,15 @@
+* Equipo de backup de energia Tecnocom
+** Entrando con 220
+   - el led titila 2 veces
+   - salida en vacio 40V
+   - corriente de salida con carga 700mA
+
+** Entrando por bateria
+   - el led titila 3 veces
+   - salida en vacio 40V
+   - corriente de salida con carga 200mA
+
+** Configuracion en hard.h
+   - BOOST_BACKUP_TECNOCOM
+   - LED_SHOW_STATUS
+   - ONE_RSENSE    (aunque la placa tiene 2 R 0.33 soldadas?!)
